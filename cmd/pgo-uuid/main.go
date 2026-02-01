@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/prothegee/pgo/pkg/pgo"
+	"github.com/prothegee/pgo"
 )
 
 const (
