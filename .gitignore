@@ -49,6 +49,8 @@ export*.h
 export*.hh
 export*.hpp
 
+/coverage.out
+
 ##
 ## file: exclude
 ##
