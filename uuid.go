@@ -331,7 +331,6 @@ func UUIDv7() (string, error) {
 		counterBits = binary.BigEndian.Uint16(randBuf) & 0x0FFF // get 12 bit
 	}
 
-	// Bangun UUID v7 sesuai RFC 9562
 	// gen uuid v7 RFC 9562 compliant
 	uuid := make([]byte, 16)
 
