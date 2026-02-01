@@ -12,10 +12,10 @@ import (
 // --------------------------------------------------------- //
 
 type UUIDv1Generator struct {
-	mu            sync.Mutex
-	lastTimestamp uint64
-	clockSeq      uint16
-	node          [6]byte
+	Mtx           sync.Mutex
+	LastTimestamp uint64
+	ClockSeq      uint16
+	Node          [6]byte
 }
 
 const (
@@ -24,12 +24,12 @@ const (
 )
 
 var (
-	globalGenerator     *UUIDv1Generator
-	globalGeneratorOnce sync.Once
-	globalGeneratorErr  error
+	GlobalGeneratorV1     *UUIDv1Generator
+	GlobalGeneratorV1Once sync.Once
+	GlobalGeneratorV1Err  error
 )
 
-func getNodeID() ([6]byte, error) {
+func GetNodeID() ([6]byte, error) {
 	// strat:
 	// try get address from non-loopback interface
 	// if fail, use random multicast (RFC 4122:4.5)
@@ -63,7 +63,7 @@ func getNodeID() ([6]byte, error) {
 	return node, nil
 }
 
-func getRandom14Bit() (uint16, error) {
+func GetRandom14Bit() (uint16, error) {
 	b := make([]byte, 2)
 	if _, err := rand.Read(b); err != nil {
 		return 0, err
@@ -78,9 +78,9 @@ func getTimestamp() uint64 {
 }
 
 // uuid v7 RFC 4122 compliant
-func (g *UUIDv1Generator) new() (string, error) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
+func (g *UUIDv1Generator) NewV1() (string, error) {
+	g.Mtx.Lock()
+	defer g.Mtx.Unlock()
 
 	timestamp := getTimestamp()
 
@@ -88,29 +88,29 @@ func (g *UUIDv1Generator) new() (string, error) {
 	var err error
 
 	switch {
-	case g.lastTimestamp == 0:
+	case g.LastTimestamp == 0:
 		// first time init
-		clockSeq, err = getRandom14Bit()
+		clockSeq, err = GetRandom14Bit()
 		if err != nil {
 			return "", err
 		}
 
-	case timestamp < g.lastTimestamp:
+	case timestamp < g.LastTimestamp:
 		// clock regression (time backward) - increment clock seq
-		clockSeq = (g.clockSeq + 1) & clockSeqMask
+		clockSeq = (g.ClockSeq + 1) & clockSeqMask
 
-	case timestamp == g.lastTimestamp:
+	case timestamp == g.LastTimestamp:
 		// same timestamp - increment clock seq
-		clockSeq = (g.clockSeq + 1) & clockSeqMask
+		clockSeq = (g.ClockSeq + 1) & clockSeqMask
 		if clockSeq == 0 {
 			// overflow clock seq (16384 uuid in the same 100 nanoseconds)
 			// wait till timestamp changed (RFC 4122:4.2.1.1)
-			for timestamp == g.lastTimestamp {
+			for timestamp == g.LastTimestamp {
 				time.Sleep(time.Microsecond)
 				timestamp = getTimestamp()
 			}
 			// set clock seq to random val after waited
-			clockSeq, err = getRandom14Bit()
+			clockSeq, err = GetRandom14Bit()
 			if err != nil {
 				return "", err
 			}
@@ -118,15 +118,15 @@ func (g *UUIDv1Generator) new() (string, error) {
 
 	default:
 		// forward timestamp - reset clock seq to rand val
-		clockSeq, err = getRandom14Bit()
+		clockSeq, err = GetRandom14Bit()
 		if err != nil {
 			return "", err
 		}
 	}
 
 	// save for for next generate
-	g.lastTimestamp = timestamp
-	g.clockSeq = clockSeq
+	g.LastTimestamp = timestamp
+	g.ClockSeq = clockSeq
 
 	// uuid v1 (RFC 4122 section 4.2)
 	timeLow := uint32(timestamp & 0xFFFFFFFF)
@@ -143,29 +143,29 @@ func (g *UUIDv1Generator) new() (string, error) {
 	binary.BigEndian.PutUint16(uuid[6:8], timeHiAndVersion)
 	uuid[8] = clockSeqHiAndVariant
 	uuid[9] = clockSeqLow
-	copy(uuid[10:16], g.node[:])
+	copy(uuid[10:16], g.Node[:])
 
 	return fmt.Sprintf("%x-%x-%x-%x-%x",
 		uuid[0:4], uuid[4:6], uuid[6:8], uuid[8:10], uuid[10:16],
 	), nil
 }
 
-func newUUIDv1Generator() (*UUIDv1Generator, error) {
-	node, err := getNodeID()
+func NewUUIDv1Generator() (*UUIDv1Generator, error) {
+	node, err := GetNodeID()
 	if err != nil {
 		return nil, fmt.Errorf("gagal menginisialisasi node ID: %w", err)
 	}
 
 	// try init random clock seq (14-bit)
-	clockSeq, err := getRandom14Bit()
+	clockSeq, err := GetRandom14Bit()
 	if err != nil {
 		return nil, fmt.Errorf("gagal menginisialisasi clock sequence: %w", err)
 	}
 
 	return &UUIDv1Generator{
-		lastTimestamp: 0,
-		clockSeq:      clockSeq,
-		node:          node,
+		LastTimestamp: 0,
+		ClockSeq:      clockSeq,
+		Node:          node,
 	}, nil
 }
 
@@ -179,13 +179,13 @@ func newUUIDv1Generator() (*UUIDv1Generator, error) {
 //
 // @return string, err
 func UUIDv1() (string, error) {
-	globalGeneratorOnce.Do(func() {
-		globalGenerator, globalGeneratorErr = newUUIDv1Generator()
+	GlobalGeneratorV1Once.Do(func() {
+		GlobalGeneratorV1, GlobalGeneratorV1Err = NewUUIDv1Generator()
 	})
-	if globalGeneratorErr != nil {
-		return "", fmt.Errorf("inisialisasi UUID v1 gagal: %w", globalGeneratorErr)
+	if GlobalGeneratorV1Err != nil {
+		return "", fmt.Errorf("fail to initialize uuid v1: %w", GlobalGeneratorV1Err)
 	}
-	return globalGenerator.new()
+	return GlobalGeneratorV1.NewV1()
 }
 
 // --------------------------------------------------------- //
@@ -211,20 +211,21 @@ func UUIDv4() (string, error) {
 
 // --------------------------------------------------------- //
 
-type UUIDv7Generator struct {
-	mu         sync.Mutex
-	lastMillis int64
-	counter    uint16 // 12-bit counter (0-4095)
+// UUIDGeneratorV7 structure (ekspor semua field untuk testing)
+type UUIDGeneratorV7 struct {
+	Mtx        sync.Mutex
+	LastMillis int64
+	Counter    uint16 // 12-bit counter (0-4095)
 }
 
 var (
-	v7Generator     *UUIDv7Generator
-	v7GeneratorOnce sync.Once
-	v7GeneratorErr  error
+	GeneratorV7     *UUIDGeneratorV7
+	GeneratorV7Once sync.Once
+	GeneratorV7Err  error
 )
 
-// helper putUint48 since not available in stl
-func putUint48(b []byte, v uint64) {
+// helper PutUint48 since not available in stl
+func PutUint48(b []byte, v uint64) {
 	_ = b[5] // bounds check hint
 	b[0] = byte(v >> 40)
 	b[1] = byte(v >> 32)
@@ -234,11 +235,60 @@ func putUint48(b []byte, v uint64) {
 	b[5] = byte(v)
 }
 
-func newUUIDv7Generator() (*UUIDv7Generator, error) {
-	return &UUIDv7Generator{
-		lastMillis: 0,
-		counter:    0,
+// NewUUIDGeneratorV7 ekspor constructor untuk testing
+func NewUUIDGeneratorV7() (*UUIDGeneratorV7, error) {
+	return &UUIDGeneratorV7{
+		LastMillis: 0,
+		Counter:    0,
 	}, nil
+}
+
+// NewV7 ekspor method untuk generate UUID v7 dari generator (untuk testing)
+func (g *UUIDGeneratorV7) NewV7() (string, error) {
+	g.Mtx.Lock()
+	defer g.Mtx.Unlock()
+
+	now := time.Now().UnixMilli()
+
+	// reset counter if millisecond changed
+	if now != g.LastMillis {
+		g.LastMillis = now
+		g.Counter = 0
+	}
+
+	var counterBits uint16
+	if g.Counter < 4095 {
+		// inline counter
+		counterBits = g.Counter
+		g.Counter++
+	} else {
+		// overflow use random bits of 12-bit (RFC 9562:6.2)
+		randBuf := make([]byte, 2)
+		if _, err := rand.Read(randBuf); err != nil {
+			return "", err
+		}
+		counterBits = binary.BigEndian.Uint16(randBuf) & 0x0FFF // get 12 bit
+	}
+
+	// gen uuid v7 RFC 9562 compliant
+	uuid := make([]byte, 16)
+
+	// 48-bit timestamp (unix millisecond)
+	PutUint48(uuid[0:6], uint64(now))
+
+	// 4-bit version (7) + 12-bit counter/random
+	uuid[6] = (7 << 4) | byte(counterBits>>8) // 0111xxxx
+	uuid[7] = byte(counterBits)
+
+	// 2-bit variant (10) + 62-bit random
+	randBuf := make([]byte, 10)
+	if _, err := rand.Read(randBuf); err != nil {
+		return "", err
+	}
+	uuid[8] = (randBuf[0] & 0x3F) | 0x80 // 10xxxxxx
+	copy(uuid[9:], randBuf[1:])
+
+	return fmt.Sprintf("%x-%x-%x-%x-%x", uuid[0:4], uuid[4:6], uuid[6:8], uuid[8:10], uuid[10:]), nil
 }
 
 // @brief generate uuid v7
@@ -249,31 +299,30 @@ func newUUIDv7Generator() (*UUIDv7Generator, error) {
 //
 // @return string, err
 func UUIDv7() (string, error) {
-	v7GeneratorOnce.Do(func() {
-		v7Generator, v7GeneratorErr = newUUIDv7Generator()
+	GeneratorV7Once.Do(func() {
+		GeneratorV7, GeneratorV7Err = NewUUIDGeneratorV7()
 	})
-	if v7GeneratorErr != nil {
-		return "", fmt.Errorf("inisialisasi UUID v7 gagal: %w", v7GeneratorErr)
+	if GeneratorV7Err != nil {
+		return "", fmt.Errorf("fail to initialize uuid v7: %w", GeneratorV7Err)
 	}
 
-	v7Generator.mu.Lock()
-	defer v7Generator.mu.Unlock()
+	GeneratorV7.Mtx.Lock()
+	defer GeneratorV7.Mtx.Unlock()
 
 	now := time.Now().UnixMilli()
 
 	// reset counter if millisecond changed
-	if now != v7Generator.lastMillis {
-		v7Generator.lastMillis = now
-		v7Generator.counter = 0
+	if now != GeneratorV7.LastMillis {
+		GeneratorV7.LastMillis = now
+		GeneratorV7.Counter = 0
 	}
 
 	var counterBits uint16
-	if v7Generator.counter < 4095 {
+	if GeneratorV7.Counter < 4095 {
 		// inline counter
-		counterBits = v7Generator.counter
-		v7Generator.counter++
+		counterBits = GeneratorV7.Counter
+		GeneratorV7.Counter++
 	} else {
-		// Overflow: gunakan 12-bit random bits (RFC 9562 section 6.2)
 		// overflow use random bits of 12-bit (RFC 9562:6.2)
 		randBuf := make([]byte, 2)
 		if _, err := rand.Read(randBuf); err != nil {
@@ -287,7 +336,7 @@ func UUIDv7() (string, error) {
 	uuid := make([]byte, 16)
 
 	// 48-bit timestamp (unix millisecond)
-	putUint48(uuid[0:6], uint64(now))
+	PutUint48(uuid[0:6], uint64(now))
 
 	// 4-bit version (7) + 12-bit counter/random
 	uuid[6] = (7 << 4) | byte(counterBits>>8) // 0111xxxx
