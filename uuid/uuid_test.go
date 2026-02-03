@@ -12,7 +12,7 @@ import (
 
 // TestUUIDv1Format tests the format of UUID v1
 func TestUUIDv1Format(t *testing.T) {
-	uuid, err := UUIDv1()
+	uuid, err := UUIDv1asString()
 	if err != nil {
 		t.Fatalf("UUIDv1() error = %v", err)
 	}
@@ -30,7 +30,7 @@ func TestUUIDv1Format(t *testing.T) {
 
 // TestUUIDv4Format tests the format of UUID v4
 func TestUUIDv4Format(t *testing.T) {
-	uuid, err := UUIDv4()
+	uuid, err := UUIDv4asString()
 	if err != nil {
 		t.Fatalf("UUIDv4() error = %v", err)
 	}
@@ -48,7 +48,7 @@ func TestUUIDv4Format(t *testing.T) {
 
 // TestUUIDv7Format tests the format of UUID v7
 func TestUUIDv7Format(t *testing.T) {
-	uuid, err := UUIDv7()
+	uuid, err := UUIDv7asString()
 	if err != nil {
 		t.Fatalf("UUIDv7() error = %v", err)
 	}
@@ -70,7 +70,7 @@ func TestUUIDv1Uniqueness(t *testing.T) {
 	uuids := make(map[string]bool)
 
 	for i := 0; i < numUUIDs; i++ {
-		uuid, err := UUIDv1()
+		uuid, err := UUIDv1asString()
 		if err != nil {
 			t.Fatalf("UUIDv1() error = %v", err)
 		}
@@ -87,7 +87,7 @@ func TestUUIDv4Uniqueness(t *testing.T) {
 	uuids := make(map[string]bool)
 
 	for i := 0; i < numUUIDs; i++ {
-		uuid, err := UUIDv4()
+		uuid, err := UUIDv4asString()
 		if err != nil {
 			t.Fatalf("UUIDv4() error = %v", err)
 		}
@@ -104,7 +104,7 @@ func TestUUIDv7Uniqueness(t *testing.T) {
 	uuids := make(map[string]bool)
 
 	for i := 0; i < numUUIDs; i++ {
-		uuid, err := UUIDv7()
+		uuid, err := UUIDv7asString()
 		if err != nil {
 			t.Fatalf("UUIDv7() error = %v", err)
 		}
@@ -121,7 +121,7 @@ func TestUUIDv7TimestampMonotonic(t *testing.T) {
 	var lastTime uint64
 
 	for i := 0; i < numUUIDs; i++ {
-		uuid, err := UUIDv7()
+		uuid, err := UUIDv7asString()
 		if err != nil {
 			t.Fatalf("UUIDv7() error = %v", err)
 		}
@@ -213,7 +213,7 @@ func TestUUIDv1Concurrent(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			for j := 0; j < numUUIDsPerGoroutine; j++ {
-				uuid, err := UUIDv1()
+				uuid, err := UUIDv1asString()
 				if err != nil {
 					errors <- fmt.Errorf("goroutine %d: %v", id, err)
 					return
@@ -265,7 +265,7 @@ func TestUUIDv7Concurrent(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			for j := 0; j < numUUIDsPerGoroutine; j++ {
-				uuid, err := UUIDv7()
+				uuid, err := UUIDv7asString()
 				if err != nil {
 					errors <- fmt.Errorf("goroutine %d: %v", id, err)
 					return
@@ -391,7 +391,7 @@ func TestUUIDv1ErrorSimulation(t *testing.T) {
 	GlobalGeneratorV1Err = nil
 
 	// This should fail due to random read error
-	_, err := UUIDv1()
+	_, err := UUIDv1asString()
 	if err == nil {
 		fmt.Printf("NOTE: mocking crypto/rand is not practical\n")
 		t.Skip("Expected error from UUIDv1, got none")
@@ -475,7 +475,7 @@ func TestUUIDv1NodeID(t *testing.T) {
 	GlobalGeneratorV1Once = sync.Once{}
 	GlobalGeneratorV1Err = nil
 
-	uuid, err := UUIDv1()
+	uuid, err := UUIDv1asString()
 	if err != nil {
 		t.Fatalf("UUIDv1 with mock interfaces error: %v", err)
 	}
@@ -502,7 +502,7 @@ func BenchmarkUUIDv1(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := UUIDv1()
+		_, err := UUIDv1asString()
 		if err != nil {
 			b.Fatalf("UUIDv1() error = %v", err)
 		}
@@ -511,7 +511,7 @@ func BenchmarkUUIDv1(b *testing.B) {
 
 func BenchmarkUUIDv4(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		_, err := UUIDv4()
+		_, err := UUIDv4asString()
 		if err != nil {
 			b.Fatalf("UUIDv4() error = %v", err)
 		}
@@ -526,7 +526,7 @@ func BenchmarkUUIDv7(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := UUIDv7()
+		_, err := UUIDv7asString()
 		if err != nil {
 			b.Fatalf("UUIDv7() error = %v", err)
 		}
@@ -583,7 +583,7 @@ func TestCrossVersionUniqueness(t *testing.T) {
 
 	// Generate UUIDs from all versions
 	for i := 0; i < numEach; i++ {
-		uuid1, err := UUIDv1()
+		uuid1, err := UUIDv1asString()
 		if err != nil {
 			t.Fatalf("UUIDv1() error = %v", err)
 		}
@@ -592,7 +592,7 @@ func TestCrossVersionUniqueness(t *testing.T) {
 		}
 		allUUIDs[uuid1] = "v1"
 
-		uuid4, err := UUIDv4()
+		uuid4, err := UUIDv4asString()
 		if err != nil {
 			t.Fatalf("UUIDv4() error = %v", err)
 		}
@@ -601,7 +601,7 @@ func TestCrossVersionUniqueness(t *testing.T) {
 		}
 		allUUIDs[uuid4] = "v4"
 
-		uuid7, err := UUIDv7()
+		uuid7, err := UUIDv7asString()
 		if err != nil {
 			t.Fatalf("UUIDv7() error = %v", err)
 		}

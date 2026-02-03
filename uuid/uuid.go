@@ -1,13 +1,20 @@
 package pgo
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"time"
 )
+
+// --------------------------------------------------------- //
+
+// 128 bit (16 byte) uuid as defined in RFC 4122
+type UUID [16]byte
 
 // --------------------------------------------------------- //
 
@@ -178,7 +185,7 @@ func NewUUIDv1Generator() (*UUIDv1Generator, error) {
 // @note do not use in goroutine (goroutine safe postpone)
 //
 // @return string, err
-func UUIDv1() (string, error) {
+func UUIDv1asString() (string, error) {
 	GlobalGeneratorV1Once.Do(func() {
 		GlobalGeneratorV1, GlobalGeneratorV1Err = NewUUIDv1Generator()
 	})
@@ -190,10 +197,10 @@ func UUIDv1() (string, error) {
 
 // --------------------------------------------------------- //
 
-// @brief generate uuid v4
+// @brief generate uuid v4 as string
 //
 // @return string, err
-func UUIDv4() (string, error) {
+func UUIDv4asString() (string, error) {
 	b := make([]byte, 16)
 	_, err := rand.Read(b)
 	if err != nil {
@@ -291,14 +298,14 @@ func (g *UUIDGeneratorV7) NewV7() (string, error) {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", uuid[0:4], uuid[4:6], uuid[6:8], uuid[8:10], uuid[10:]), nil
 }
 
-// @brief generate uuid v7
+// @brief generate uuid v7 as string
 //
 // @note one-time usage only
 //
 // @note do not use in goroutine (goroutine safe postpone)
 //
 // @return string, err
-func UUIDv7() (string, error) {
+func UUIDv7asString() (string, error) {
 	GeneratorV7Once.Do(func() {
 		GeneratorV7, GeneratorV7Err = NewUUIDGeneratorV7()
 	})
@@ -350,4 +357,117 @@ func UUIDv7() (string, error) {
 	copy(uuid[9:], randBuf[1:])
 
 	return fmt.Sprintf("%x-%x-%x-%x-%x", uuid[0:4], uuid[4:6], uuid[6:8], uuid[8:10], uuid[10:]), nil
+}
+
+// --------------------------------------------------------- //
+
+var xvalues = [256]byte{
+	255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+	255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+	255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+	0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 255, 255, 255, 255, 255, 255,
+	255, 10, 11, 12, 13, 14, 15, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+	255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+	255, 10, 11, 12, 13, 14, 15, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+	255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+	255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+	255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+	255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+	255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+	255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+	255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+	255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+	255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+}
+
+func xToByte(x1, x2 byte) (byte, bool) {
+	b1 := xvalues[x1]
+	b2 := xvalues[x2]
+	return (b1 << 4) | b2, b1 != 255 && b2 != 255
+}
+
+func ParseUUIDfromString(s string) (UUID, error) {
+	var uuid UUID
+
+	switch len(s) {
+	case 32:
+		var ok bool
+		for i := range uuid {
+			uuid[i], ok = xToByte(s[i*2], s[i*2+1])
+			if !ok {
+				return uuid, fmt.Errorf("wrong uuid format")
+			}
+		}
+		return uuid, nil
+	case 36:
+		// ok
+	case 36 + 2:
+		s = s[1:]
+	case 36 + 9:
+		if !strings.EqualFold(s[:9], "urn:uuid:") {
+			return uuid, fmt.Errorf("wrong urn prefix: %q", s[:9])
+		}
+		s = s[9:]
+	default:
+		return uuid, fmt.Errorf("wrong uuid length: %d", len(s))
+	}
+
+	// now s is at least 36 bytes long
+	// as xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+	if s[8] != '-' || s[13] != '-' || s[18] != '-' || s[23] != '-' {
+		return uuid, fmt.Errorf("wrong uuid format")
+	}
+
+	for i, x := range [16]int{0, 2, 4, 6, 9, 11, 14, 16, 19, 21, 24, 26, 28, 30, 32, 34} {
+		val, ok := xToByte(s[x], s[x+1])
+		if !ok {
+			return uuid, fmt.Errorf("invalid uuid format")
+		}
+		uuid[i] = val
+	}
+
+	return uuid, nil
+}
+
+func ParseUUIDfromBytes(b []byte) (UUID, error) {
+	var uuid UUID
+
+	switch len(b) {
+	case 32:
+		var ok bool
+		for i := 0; i<32; i+=2 {
+			uuid[i/2], ok = xToByte(b[i],b[i+1])
+			if !ok {
+				return uuid, fmt.Errorf("wrong uuid format")
+			}
+		}
+		return uuid, nil
+	case 36:
+		// ok
+	case 36+2:
+		b = b[1:]
+	case 36+9:
+		if !bytes.EqualFold(b[:9], []byte("urn:uuid")) {
+			return uuid, fmt.Errorf("wrong urn:prefix: %q", b[:9])
+		}
+		b = b[9:]
+	default:
+		return uuid, fmt.Errorf("wrong uuid format")
+	}
+
+	// now s is at least 36 bytes long
+	// as xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+	if b[8] != '-' || b[13] != '-' || b[18] != '-' || b[23] != '-' {
+		return uuid, fmt.Errorf("wrong uuid format")
+	}
+
+	for i, x := range [16]int{0, 2, 4, 6, 9, 11, 14, 16, 19, 21, 24, 26, 28, 30, 32, 34} {
+		val, ok := xToByte(b[x], b[x+1])
+		if !ok {
+			return uuid, fmt.Errorf("invalid uuid format")
+		}
+		uuid[i] = val
+	}
+
+	return uuid, nil
 }
