@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/prothegee/pgo"
+	"github.com/prothegee/pgo/uuid"
 )
 
 const (
@@ -24,15 +24,15 @@ func main() {
 	}
 
 	if arg == "v1" {
-		res, _ := pgo.UUIDv1()
+		res, _ := pgo.UUIDv1asString()
 		fmt.Println(res)
 	}
 	if arg == "v4" {
-		res, _ := pgo.UUIDv4()
+		res, _ := pgo.UUIDv4asString()
 		fmt.Println(res)
 	}
 	if arg == "v7" {
-		res, _ := pgo.UUIDv7()
+		res, _ := pgo.UUIDv7asString()
 		fmt.Println(res)
 	}
 }

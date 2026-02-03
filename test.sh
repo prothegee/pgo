@@ -1,8 +1,14 @@
-#!/usr/bin/sh
-go test -v ./...
+#!/bin/sh
+set -e  # fail fast if any command fails
 
-# go test -v -run TestUUIDv1Format
+go test -v \
+    ./cmd/... \
+    ./uuid/...;
 
-go test -bench=. -benchmem
+go test -bench=. \
+    -benchmem ./cmd/... \
+    ./uuid/...;
 
-go test -race ./...
+go test -race \
+    ./cmd/... \
+    ./uuid/...;
