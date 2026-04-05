@@ -4,15 +4,15 @@ set -e  # fail fast if any command fails
 go test -v \
     ./cmd/... \
     ./uuid/... \
-    ./utility/... ;
+    ./utils/... ;
 
 go test -bench=. \
     -benchmem \
     ./cmd/... \
     ./uuid/... \
-    ./utility/... ;
+    ./utils/... ;
 
 go test -race \
     ./cmd/... \
     ./uuid/... \
-    ./utility/... ;
+    ./utils/... ;
