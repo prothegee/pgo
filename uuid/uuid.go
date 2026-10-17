@@ -36,6 +36,32 @@ var (
 	GlobalGeneratorV1Err  error
 )
 
+// --------------------------------------------------------- //
+
+func GetRandom12Bit() (uint16, error) {
+	var b [2]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return 0, err
+	}
+	return binary.BigEndian.Uint16(b[:]) & 0x0FFF, nil
+}
+
+func GetRandom14Bit() (uint16, error) {
+	b := make([]byte, 2)
+	if _, err := rand.Read(b); err != nil {
+		return 0, err
+	}
+	return binary.BigEndian.Uint16(b) & clockSeqMask, nil
+}
+
+// timestamp 60-bit in 100 nanoseconds since 1582-10-15 intervals
+func getTimestamp() uint64 {
+	unixTime := time.Now().UnixNano() / 100 // 100-ns intervals
+	return uint64(unixTime) + gregorianOffset
+}
+
+// --------------------------------------------------------- //
+
 func GetNodeID() ([6]byte, error) {
 	// strat:
 	// try get address from non-loopback interface
@@ -68,20 +94,6 @@ func GetNodeID() ([6]byte, error) {
 	var node [6]byte
 	copy(node[:], randomNode)
 	return node, nil
-}
-
-func GetRandom14Bit() (uint16, error) {
-	b := make([]byte, 2)
-	if _, err := rand.Read(b); err != nil {
-		return 0, err
-	}
-	return binary.BigEndian.Uint16(b) & clockSeqMask, nil
-}
-
-// timestamp 60-bit in 100 nanoseconds since 1582-10-15 intervals
-func getTimestamp() uint64 {
-	unixTime := time.Now().UnixNano() / 100 // 100-ns intervals
-	return uint64(unixTime) + gregorianOffset
 }
 
 // uuid v7 RFC 4122 compliant
@@ -178,7 +190,10 @@ func NewUUIDv1Generator() (*UUIDv1Generator, error) {
 
 // generate uuid v1
 func UUIDv1() (UUID, error) {
-	res, _ := UUIDv1asString()
+	res, err := UUIDv1asString()
+	if err != nil {
+		return UUID{}, err
+	}
 	return UUIDfromString(res)
 }
 
@@ -199,7 +214,10 @@ func UUIDv1asString() (string, error) {
 
 // generate uuid v4
 func UUIDv4() (UUID, error) {
-	res, _ := UUIDv4asString()
+	res, err := UUIDv4asString()
+	if err != nil {
+		return UUID{}, err
+	}
 	return UUIDfromString(res)
 }
 
@@ -249,9 +267,17 @@ func PutUint48(b []byte, v uint64) {
 
 // NewUUIDGeneratorV7 export constructor for testing
 func NewUUIDGeneratorV7() (*UUIDGeneratorV7, error) {
+	c, err := GetRandom12Bit()
+	if err != nil {
+		return nil, err
+	}
+	if c == 0 { // avoid the exact "7000" case
+		c = 1
+	}
+
 	return &UUIDGeneratorV7{
 		LastMillis: 0,
-		Counter:    0,
+		Counter:    c,
 	}, nil
 }
 
@@ -262,10 +288,18 @@ func (g *UUIDGeneratorV7) NewV7() (string, error) {
 
 	now := time.Now().UnixMilli()
 
-	// reset counter if millisecond changed
+	// reseed counter with a random value when millisecond changes
+	// (RFC 9562:6.2 - counter must not start from a fixed value)
 	if now != g.LastMillis {
 		g.LastMillis = now
-		g.Counter = 0
+		c, err := GetRandom12Bit()
+		if err != nil {
+			return "", err
+		}
+		if c == 0 { // avoid the exact "7000" case
+			c = 1
+		}
+		g.Counter = c
 	}
 
 	var counterBits uint16
@@ -305,7 +339,10 @@ func (g *UUIDGeneratorV7) NewV7() (string, error) {
 
 // generate uuid v7
 func UUIDv7() (UUID, error) {
-	res, _ := UUIDv7asString()
+	res, err := UUIDv7asString()
+	if err != nil {
+		return UUID{}, err
+	}
 	return UUIDfromString(res)
 }
 
@@ -319,51 +356,7 @@ func UUIDv7asString() (string, error) {
 	if GeneratorV7Err != nil {
 		return "", fmt.Errorf("fail to initialize uuid v7: %w", GeneratorV7Err)
 	}
-
-	GeneratorV7.Mtx.Lock()
-	defer GeneratorV7.Mtx.Unlock()
-
-	now := time.Now().UnixMilli()
-
-	// reset counter if millisecond changed
-	if now != GeneratorV7.LastMillis {
-		GeneratorV7.LastMillis = now
-		GeneratorV7.Counter = 0
-	}
-
-	var counterBits uint16
-	if GeneratorV7.Counter < 4095 {
-		// inline counter
-		counterBits = GeneratorV7.Counter
-		GeneratorV7.Counter++
-	} else {
-		// overflow use random bits of 12-bit (RFC 9562:6.2)
-		randBuf := make([]byte, 2)
-		if _, err := rand.Read(randBuf); err != nil {
-			return "", err
-		}
-		counterBits = binary.BigEndian.Uint16(randBuf) & 0x0FFF // get 12 bit
-	}
-
-	// gen uuid v7 RFC 9562 compliant
-	uuid := make([]byte, 16)
-
-	// 48-bit timestamp (unix millisecond)
-	PutUint48(uuid[0:6], uint64(now))
-
-	// 4-bit version (7) + 12-bit counter/random
-	uuid[6] = (7 << 4) | byte(counterBits>>8) // 0111xxxx
-	uuid[7] = byte(counterBits)
-
-	// 2-bit variant (10) + 62-bit random
-	randBuf := make([]byte, 10)
-	if _, err := rand.Read(randBuf); err != nil {
-		return "", err
-	}
-	uuid[8] = (randBuf[0] & 0x3F) | 0x80 // 10xxxxxx
-	copy(uuid[9:], randBuf[1:])
-
-	return fmt.Sprintf("%x-%x-%x-%x-%x", uuid[0:4], uuid[4:6], uuid[6:8], uuid[8:10], uuid[10:]), nil
+	return GeneratorV7.NewV7()
 }
 
 // --------------------------------------------------------- //
