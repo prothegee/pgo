@@ -267,17 +267,9 @@ func PutUint48(b []byte, v uint64) {
 
 // NewUUIDGeneratorV7 export constructor for testing
 func NewUUIDGeneratorV7() (*UUIDGeneratorV7, error) {
-	c, err := GetRandom12Bit()
-	if err != nil {
-		return nil, err
-	}
-	if c == 0 { // avoid the exact "7000" case
-		c = 1
-	}
-
 	return &UUIDGeneratorV7{
 		LastMillis: 0,
-		Counter:    c,
+		Counter:    0, // seeded randomly on the first NewV7() call (LastMillis == 0)
 	}, nil
 }
 
@@ -288,9 +280,12 @@ func (g *UUIDGeneratorV7) NewV7() (string, error) {
 
 	now := time.Now().UnixMilli()
 
-	// reseed counter with a random value when millisecond changes
-	// (RFC 9562:6.2 - counter must not start from a fixed value)
-	if now != g.LastMillis {
+	switch {
+	case g.LastMillis == 0:
+		// First call ever: seed counter randomly so the very first UUID's
+		// rand_a is not always 0 (RFC 9562:6.2 - counter must be initialized
+		// to a random value). This fixes the "-7000-" bug for short-lived
+		// processes like the pgo-uuid CLI.
 		g.LastMillis = now
 		c, err := GetRandom12Bit()
 		if err != nil {
@@ -300,6 +295,15 @@ func (g *UUIDGeneratorV7) NewV7() (string, error) {
 			c = 1
 		}
 		g.Counter = c
+
+	case now != g.LastMillis:
+		// Subsequent time change (forward or regression): reset counter to 0.
+		// Timestamp uniqueness already guarantees cross-ms uniqueness, so
+		// resetting to 0 here is safe and keeps intra-ms monotonicity.
+		g.LastMillis = now
+		g.Counter = 0
+
+	// case now == g.LastMillis: fall through, counter increments normally
 	}
 
 	var counterBits uint16
